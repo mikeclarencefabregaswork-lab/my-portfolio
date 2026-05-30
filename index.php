@@ -288,7 +288,7 @@ function decode_tech(string $json): array {
         <!-- Gradient blob behind photo -->
         <div class="absolute inset-0 -m-6 rounded-full bg-gradient-to-br from-pink-600/20 via-purple-700/15 to-transparent blur-3xl"></div>
         <img
-          src="uploads/profilePic.jpg"
+          src="uploads/IMG_0828.JPG"
           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
           alt="Mike Clarence Fabregas"
           class="relative rounded-2xl w-64 h-64 lg:w-80 lg:h-80 object-cover border border-neutral-800 shadow-2xl"
@@ -313,7 +313,7 @@ function decode_tech(string $json): array {
   <div class="flex flex-wrap items-center gap-10">
     <div class="reveal from-left w-full lg:w-5/12 flex justify-center">
       <img
-        src="uploads/profile_Pic.jpg"
+        src="uploads/IMG_0830.JPG"
         onerror="this.src='https://placehold.co/340x400/111/333?text=MCF'"
         alt="About Mike"
         class="rounded-2xl w-72 object-cover border border-neutral-800 shadow-xl"
@@ -348,12 +348,12 @@ function decode_tech(string $json): array {
     $tech_icons = [
       ['name' => 'React',      'file' => 'icons/react.png',      'float' => 'float-1'],
       ['name' => 'Python',     'file' => 'icons/python.png',     'float' => 'float-2'],
-      ['name' => 'HTML5',      'file' => 'icons/html5.png',      'float' => 'float-3'],
-      ['name' => 'CSS3',       'file' => 'icons/css3.png',       'float' => 'float-4'],
-      ['name' => 'JavaScript', 'file' => 'icons/javascript.png', 'float' => 'float-5'],
-      ['name' => 'PHP',        'file' => 'icons/php.png',        'float' => 'float-1'],
-      ['name' => 'MongoDB',    'file' => 'icons/mongodb.png',    'float' => 'float-2'],
-      ['name' => 'MySQL',      'file' => 'icons/mysql.png',      'float' => 'float-3'],
+      ['name' => 'HTML5',      'file' => 'icons/HTML5.png',      'float' => 'float-3'],
+      ['name' => 'CSS3',       'file' => 'icons/CSS3.png',       'float' => 'float-4'],
+      ['name' => 'JavaScript', 'file' => 'icons/JavaScript.png', 'float' => 'float-5'],
+      ['name' => 'PHP',        'file' => 'icons/PHP.png',        'float' => 'float-1'],
+      ['name' => 'MySQL',      'file' => 'icons/mySQL.png',      'float' => 'float-3'],
+      ['name' => 'Capcut',     'file' => 'icons/Capcut.png',     'float' => 'float-2'],
     ];
     foreach ($tech_icons as $icon): ?>
       <div class="tech-card <?= $icon['float'] ?>">
