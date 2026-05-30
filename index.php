@@ -496,7 +496,7 @@ function decode_tech(string $json): array {
   </h2>
   <div class="text-center tracking-tighter space-y-4">
     <p class="reveal from-left text-neutral-400">Lipa City, Batangas, Philippines</p>
-    <p class="reveal from-left text-neutral-400">0955-405-9911</p>
+    <p class="reveal from-left text-neutral-400">0955-405-9911 / 0946-711-8429</p>
     <a class="reveal from-left inline-block border-b border-neutral-600 text-neutral-300 hover:text-white hover:border-white transition"
        href="mailto:mikeclarencefabregas@gmail.com">
       mikeclarencefabregas.work@gmail.com
