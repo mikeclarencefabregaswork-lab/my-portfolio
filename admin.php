@@ -22,10 +22,9 @@ $msg_type = 'green';
 //  Physical paths under D:\xampp\htdocs\my-portfolio\projects\
 //  The web-accessible relative path stored in the DB is  projects/web/file.jpg  etc.
 define('UPLOAD_DIRS', [
-    'web_app'       => 'projects' . DIRECTORY_SEPARATOR . 'web'   . DIRECTORY_SEPARATOR,
-    'photo_editing' => 'projects' . DIRECTORY_SEPARATOR . 'photo' . DIRECTORY_SEPARATOR,
-    'video_editing' => 'projects' . DIRECTORY_SEPARATOR . 'video' . DIRECTORY_SEPARATOR,
-    'app'           => 'projects' . DIRECTORY_SEPARATOR . 'app'   . DIRECTORY_SEPARATOR,
+    'web_app'       => 'projects' . DIRECTORY_SEPARATOR . 'web',
+    'photo_editing' => 'projects' . DIRECTORY_SEPARATOR . 'photo',
+    'video_editing' => 'projects' . DIRECTORY_SEPARATOR . 'video',
 ]);
 
 // Web-relative equivalents (used for src= paths stored in DB)
@@ -33,13 +32,13 @@ define('UPLOAD_WEB', [
     'web_app'       => 'projects/web/',
     'photo_editing' => 'projects/photo/',
     'video_editing' => 'projects/video/',
-    'app'           => 'projects/app/',
 ]);
 
 function get_upload_dir(string $category): string {
     $dirs = UPLOAD_DIRS;
-    $sub  = $dirs[$category] ?? ('projects' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR);
-    return __DIR__ . DIRECTORY_SEPARATOR . $sub;
+    $sub  = $dirs[$category] ?? ('projects' . DIRECTORY_SEPARATOR . 'web');
+    // rtrim then re-add ensures exactly one trailing separator — no double-slash on Windows
+    return rtrim(__DIR__ . DIRECTORY_SEPARATOR . $sub, '/\\') . DIRECTORY_SEPARATOR;
 }
 
 function get_upload_web(string $category): string {
@@ -48,18 +47,22 @@ function get_upload_web(string $category): string {
 }
 
 function ensure_upload_dir(string $category): void {
-    $dir = get_upload_dir($category);
-    if (!is_dir($dir)) {
-        if (!mkdir($dir, 0755, true)) {
+    $dir      = get_upload_dir($category);
+    // Windows: is_dir() and is_writable() are unreliable with trailing backslash
+    // Use rtrim for the check, keep trailing sep for move_uploaded_file destination
+    $dir_check = rtrim($dir, '/\\');
+
+    if (!is_dir($dir_check)) {
+        if (!mkdir($dir_check, 0755, true)) {
             throw new RuntimeException(
-                "Could not create folder: $dir — " .
+                "Could not create folder: {$dir_check} — " .
                 "Please create it manually in your XAMPP htdocs project folder."
             );
         }
     }
-    if (!is_writable($dir)) {
+    if (!is_writable($dir_check)) {
         throw new RuntimeException(
-            "Folder is not writable: $dir — " .
+            "Folder is not writable: {$dir_check} — " .
             "On Windows right-click the folder → Properties → Security and give write access."
         );
     }
@@ -107,18 +110,19 @@ function handle_image_upload(array $file, string $category): string {
     // Step 5 — safe random filename
     $ext_map  = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
     $filename = bin2hex(random_bytes(12)) . '.' . $ext_map[$mime];
-    $dest     = $upload_dir . $filename;
+    // rtrim + one separator = exactly one backslash/slash before filename on any OS
+    $dest = rtrim($upload_dir, '/\\') . DIRECTORY_SEPARATOR . $filename;
 
     // Step 6 — move from PHP temp to the correct category folder
     if (!move_uploaded_file($file['tmp_name'], $dest)) {
         throw new RuntimeException(
-            "move_uploaded_file() failed. Destination: $dest — " .
-            "Check that the folder is writable and open_basedir in php.ini is not blocking it."
+            "move_uploaded_file() failed saving to: {$dest} — " .
+            "Check that the folder exists, is writable, and that open_basedir in php.ini is not restricting this path."
         );
     }
 
-    // Return the web-relative path that gets stored in the DB and used in src=
-    return $upload_web . $filename;
+    // Return a clean forward-slash web path stored in the DB and used in src= attributes
+    return rtrim($upload_web, '/') . '/' . $filename;
 }
 
 function techs_to_json(string $raw): string {
@@ -372,6 +376,46 @@ $experiences = $pdo->query('SELECT * FROM experiences ORDER BY sort_order, id')-
     .chip-photo { background:rgba(59,7,100,.5);  color:#d8b4fe; border:1px solid rgba(126,34,206,.4); }
     .chip-video { background:rgba(76,5,25,.5);   color:#fda4af; border:1px solid rgba(190,18,60,.4); }
     .chip { border-radius:9999px; padding:.2rem .6rem; font-size:.68rem; font-weight:500; white-space:nowrap; }
+    /* ── Toast notifications ── */
+    #toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+      pointer-events: none;
+    }
+    .toast {
+      display: flex;
+      align-items: flex-start;
+      gap: .65rem;
+      min-width: 280px;
+      max-width: 420px;
+      border-radius: .6rem;
+      padding: .75rem 1rem;
+      font-size: .8rem;
+      line-height: 1.4;
+      pointer-events: all;
+      box-shadow: 0 4px 24px rgba(0,0,0,.5);
+      animation: toastIn .25s ease both;
+    }
+    .toast.dismissing { animation: toastOut .3s ease forwards; }
+    .toast-error   { background:#1a0a0a; border:1px solid rgba(239,68,68,.5);  color:#fca5a5; }
+    .toast-warn    { background:#1a1000; border:1px solid rgba(234,179,8,.45); color:#fde68a; }
+    .toast-success { background:#0a1a0a; border:1px solid rgba(34,197,94,.4);  color:#86efac; }
+    .toast-icon { flex-shrink:0; margin-top:.05rem; }
+    .toast-close {
+      margin-left:auto; flex-shrink:0;
+      background:none; border:none; cursor:pointer;
+      color:inherit; opacity:.5; font-size:1rem; line-height:1;
+      padding:0 0 0 .4rem;
+      transition: opacity .15s;
+    }
+    .toast-close:hover { opacity:1; }
+    @keyframes toastIn  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+    @keyframes toastOut { from { opacity:1; transform:none; } to { opacity:0; transform:translateY(8px); } }
   </style>
 </head>
 <body class="min-h-screen">
@@ -391,94 +435,31 @@ $experiences = $pdo->query('SELECT * FROM experiences ORDER BY sort_order, id')-
   </div>
 </header>
 
-<!-- ── Upload folder diagnostic banner ── -->
 <?php
-// Auto-create all 4 category subfolders on page load
+// ── Silently auto-create upload folders; collect problems for toast only ──
 $folder_checks = [
     'web_app'       => 'projects' . DIRECTORY_SEPARATOR . 'web',
     'photo_editing' => 'projects' . DIRECTORY_SEPARATOR . 'photo',
     'video_editing' => 'projects' . DIRECTORY_SEPARATOR . 'video',
-    'app'           => 'projects' . DIRECTORY_SEPARATOR . 'app',
 ];
-
-$folder_status = [];
+$folder_problems = [];
 foreach ($folder_checks as $key => $rel) {
-    $abs = __DIR__ . DIRECTORY_SEPARATOR . $rel;
+    $abs = rtrim(__DIR__ . DIRECTORY_SEPARATOR . $rel, '/\\');
     if (!is_dir($abs)) @mkdir($abs, 0755, true);
-    $exists   = is_dir($abs);
-    $writable = $exists && is_writable($abs);
-    $folder_status[$key] = [
-        'rel'      => str_replace(DIRECTORY_SEPARATOR, '/', $rel),
-        'abs'      => $abs,
-        'exists'   => $exists,
-        'writable' => $writable,
-        'ok'       => $exists && $writable,
-    ];
+    if (!is_dir($abs))         $folder_problems[] = $rel . ' — missing, could not auto-create';
+    elseif (!is_writable($abs)) $folder_problems[] = $rel . ' — not writable';
 }
-$all_ok = array_reduce($folder_status, fn($c, $f) => $c && $f['ok'], true);
+
+// Build PHP-side toast queue (shown via JS on load)
+$php_toasts = [];
+if (!empty($folder_problems)) {
+    $php_toasts[] = ['type' => 'warn',
+                     'msg'  => 'Upload folder issue: ' . implode(' | ', $folder_problems)];
+}
+if ($msg !== '') {
+    $php_toasts[] = ['type' => ($msg_type === 'green' ? 'success' : 'error'), 'msg' => $msg];
+}
 ?>
-
-<?php if (!$all_ok): ?>
-<div class="mx-6 mt-5 rounded-lg border border-yellow-800/50 bg-yellow-950/30 px-4 py-4 text-sm text-yellow-400">
-  <div class="flex items-center gap-2 mb-3 font-medium">
-    <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    One or more upload folders have a problem:
-  </div>
-  <div class="space-y-1.5 mb-3">
-    <?php foreach ($folder_status as $f): ?>
-      <div class="flex items-center gap-2 font-mono text-xs">
-        <?php if ($f['ok']): ?>
-          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span class="text-green-500"><?= htmlspecialchars($f['rel']) ?></span>
-        <?php elseif (!$f['exists']): ?>
-          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          <span class="text-red-400"><?= htmlspecialchars($f['rel']) ?> &mdash; missing, could not auto-create</span>
-        <?php else: ?>
-          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <span class="text-yellow-400"><?= htmlspecialchars($f['rel']) ?> &mdash; not writable</span>
-        <?php endif; ?>
-      </div>
-    <?php endforeach; ?>
-  </div>
-  <p class="text-xs text-yellow-600 leading-relaxed">
-    Create any missing folders manually in your XAMPP project root:<br>
-    <code class="inline-block mt-1 bg-black/30 px-2 py-1 rounded text-yellow-400 font-mono">
-      D:\xampp\htdocs\my-portfolio\projects\web &nbsp;|&nbsp;
-      \photo &nbsp;|&nbsp; \video &nbsp;|&nbsp; \app
-    </code>
-  </p>
-</div>
-<?php else: ?>
-<div class="mx-6 mt-5 rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-3 text-xs text-neutral-500">
-  <div class="flex items-center gap-2 mb-2">
-    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-    <span class="text-neutral-400 font-medium">All upload folders ready</span>
-  </div>
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 font-mono">
-    <?php foreach ($folder_status as $f): ?>
-      <div class="flex items-center gap-1.5 text-neutral-600">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-        <?= htmlspecialchars(str_replace(DIRECTORY_SEPARATOR, '/', $f['abs'])) ?>
-      </div>
-    <?php endforeach; ?>
-  </div>
-</div>
-<?php endif; ?>
-
-<!-- ── Flash message ── -->
-<?php if ($msg): ?>
-  <div class="mx-6 mt-3 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm
-    <?= $msg_type === 'green'
-        ? 'border-green-800/50 bg-green-950/40 text-green-400'
-        : 'border-red-800/50 bg-red-950/40 text-red-400' ?>">
-    <?php if ($msg_type === 'green'): ?>
-      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-    <?php else: ?>
-      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <?php endif; ?>
-    <?= htmlspecialchars($msg) ?>
-  </div>
-<?php endif; ?>
 
 <!-- ── Tabs ── -->
 <div class="px-6 mt-6 border-b border-neutral-800 flex gap-1">
@@ -575,7 +556,7 @@ $all_ok = array_reduce($folder_status, fn($c, $f) => $c && $f['ok'], true);
             </td>
             <td class="hidden md:table-cell">
               <?php
-              $cat_map = ['web_app'=>['chip-web','Web/App'],'photo_editing'=>['chip-photo','Photo'],'video_editing'=>['chip-video','Video']];
+              $cat_map = ['web_app' => ['chip-web','Web / App'], 'photo_editing' => ['chip-photo','Photo'], 'video_editing' => ['chip-video','Video']];
               [$chip_cls, $chip_lbl] = $cat_map[$p['category']] ?? ['',''];
               ?>
               <span class="chip <?= $chip_cls ?>"><?= $chip_lbl ?></span>
@@ -618,7 +599,7 @@ $all_ok = array_reduce($folder_status, fn($c, $f) => $c && $f['ok'], true);
                     <div>
                       <label class="lbl">Category *</label>
                       <select name="category" class="fi">
-                        <?php foreach (['web_app'=>'Web & App Development','photo_editing'=>'Photo Editing','video_editing'=>'Video Editing'] as $val => $lbl): ?>
+                        <?php foreach (['web_app' => 'Web & App Development', 'photo_editing' => 'Photo Editing', 'video_editing' => 'Video Editing'] as $val => $lbl): ?>
                           <option value="<?= $val ?>" <?= $p['category'] === $val ? 'selected' : '' ?>><?= $lbl ?></option>
                         <?php endforeach; ?>
                       </select>
@@ -808,18 +789,78 @@ $all_ok = array_reduce($folder_status, fn($c, $f) => $c && $f['ok'], true);
 
 </main>
 
+<!-- ── Toast container ── -->
+<div id="toast-container" role="alert" aria-live="polite"></div>
+
 <script>
+/* ── Tab switcher ── */
 function switchTab(tab) {
   document.getElementById('panel-projects').style.display    = (tab === 'projects')    ? '' : 'none';
   document.getElementById('panel-experiences').style.display = (tab === 'experiences') ? '' : 'none';
-  // Update URL so refreshes preserve the tab
   const url = new URL(window.location);
   url.searchParams.set('tab', tab);
-  // Clear any open edit panel when switching tabs
   url.searchParams.delete('edit_project');
   url.searchParams.delete('edit_exp');
   history.replaceState(null, '', url);
 }
+
+/* ── Toast system ── */
+const ICONS = {
+  error:   '<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+  warn:    '<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  success: '<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
+};
+
+function showToast(type, msg, duration) {
+  duration = duration || (type === 'error' ? 0 : type === 'warn' ? 12000 : 5000);
+  const container = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  t.innerHTML = ICONS[type] +
+    '<span style="flex:1">' + msg + '</span>' +
+    '<button class="toast-close" aria-label="Dismiss">&times;</button>';
+
+  const close = t.querySelector('.toast-close');
+  let timer;
+  const dismiss = () => {
+    clearTimeout(timer);
+    t.classList.add('dismissing');
+    t.addEventListener('animationend', () => t.remove(), { once: true });
+  };
+  close.addEventListener('click', dismiss);
+  if (duration > 0) timer = setTimeout(dismiss, duration);
+
+  container.appendChild(t);
+}
+
+/* ── Client-side file validation — shows toast before form submits ── */
+function attachFileValidation(inputSelector) {
+  document.querySelectorAll(inputSelector).forEach(function(input) {
+    input.addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      const allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+      if (!allowed.includes(file.type)) {
+        showToast('error', 'Invalid file type: <strong>' + file.name + '</strong>. Only JPEG, PNG, WebP and GIF are allowed.');
+        this.value = '';
+        return;
+      }
+      const mb = file.size / 1048576;
+      if (mb > 4) {
+        showToast('error', 'File too large: <strong>' + mb.toFixed(1) + ' MB</strong>. Maximum allowed size is 4 MB.');
+        this.value = '';
+      }
+    });
+  });
+}
+
+/* ── Fire PHP-generated toasts on page load ── */
+document.addEventListener('DOMContentLoaded', function() {
+  attachFileValidation('input[type="file"]');
+
+  var phpToasts = <?= json_encode($php_toasts) ?>;
+  phpToasts.forEach(function(t) { showToast(t.type, t.msg); });
+});
 </script>
 </body>
 </html>
