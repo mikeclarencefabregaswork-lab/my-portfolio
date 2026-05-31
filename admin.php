@@ -18,26 +18,107 @@ $msg_type = 'green';
 // ─────────────────────────────────────────────────────────────
 //  HELPERS
 // ─────────────────────────────────────────────────────────────
-function handle_image_upload(array $file): string {
-    $upload_dir = __DIR__ . '/uploads/';
-    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+// ── Category → subfolder map ─────────────────────────────────────────────────
+//  Physical paths under D:\xampp\htdocs\my-portfolio\projects\
+//  The web-accessible relative path stored in the DB is  projects/web/file.jpg  etc.
+define('UPLOAD_DIRS', [
+    'web_app'       => 'projects' . DIRECTORY_SEPARATOR . 'web'   . DIRECTORY_SEPARATOR,
+    'photo_editing' => 'projects' . DIRECTORY_SEPARATOR . 'photo' . DIRECTORY_SEPARATOR,
+    'video_editing' => 'projects' . DIRECTORY_SEPARATOR . 'video' . DIRECTORY_SEPARATOR,
+    'app'           => 'projects' . DIRECTORY_SEPARATOR . 'app'   . DIRECTORY_SEPARATOR,
+]);
 
-    $allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+// Web-relative equivalents (used for src= paths stored in DB)
+define('UPLOAD_WEB', [
+    'web_app'       => 'projects/web/',
+    'photo_editing' => 'projects/photo/',
+    'video_editing' => 'projects/video/',
+    'app'           => 'projects/app/',
+]);
+
+function get_upload_dir(string $category): string {
+    $dirs = UPLOAD_DIRS;
+    $sub  = $dirs[$category] ?? ('projects' . DIRECTORY_SEPARATOR . 'web' . DIRECTORY_SEPARATOR);
+    return __DIR__ . DIRECTORY_SEPARATOR . $sub;
+}
+
+function get_upload_web(string $category): string {
+    $map = UPLOAD_WEB;
+    return $map[$category] ?? 'projects/web/';
+}
+
+function ensure_upload_dir(string $category): void {
+    $dir = get_upload_dir($category);
+    if (!is_dir($dir)) {
+        if (!mkdir($dir, 0755, true)) {
+            throw new RuntimeException(
+                "Could not create folder: $dir — " .
+                "Please create it manually in your XAMPP htdocs project folder."
+            );
+        }
+    }
+    if (!is_writable($dir)) {
+        throw new RuntimeException(
+            "Folder is not writable: $dir — " .
+            "On Windows right-click the folder → Properties → Security and give write access."
+        );
+    }
+}
+
+function check_upload_error(int $code): void {
+    $map = [
+        UPLOAD_ERR_INI_SIZE   => 'File exceeds upload_max_filesize in php.ini (' . ini_get('upload_max_filesize') . '). Open php.ini and raise that value.',
+        UPLOAD_ERR_FORM_SIZE  => 'File exceeds the form MAX_FILE_SIZE limit.',
+        UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded. Try again.',
+        UPLOAD_ERR_NO_FILE    => 'No file was sent.',
+        UPLOAD_ERR_NO_TMP_DIR => 'PHP temp directory is missing. Check upload_tmp_dir in php.ini.',
+        UPLOAD_ERR_CANT_WRITE => 'PHP could not write the temp file to disk. Check disk space.',
+        UPLOAD_ERR_EXTENSION  => 'A PHP extension blocked the upload.',
+    ];
+    if ($code !== UPLOAD_ERR_OK) {
+        throw new RuntimeException($map[$code] ?? "Upload failed with error code $code.");
+    }
+}
+
+function handle_image_upload(array $file, string $category): string {
+    // Step 1 — catch PHP-level errors
+    check_upload_error($file['error']);
+
+    // Step 2 — ensure the category subfolder exists and is writable
+    ensure_upload_dir($category);
+    $upload_dir = get_upload_dir($category);
+    $upload_web = get_upload_web($category);
+
+    // Step 3 — validate real MIME type from actual file bytes
+    $allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     $finfo   = finfo_open(FILEINFO_MIME_TYPE);
     $mime    = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
 
-    if (!in_array($mime, $allowed, true))
-        throw new RuntimeException('Invalid file type. Only JPEG, PNG, WebP and GIF allowed.');
-    if ($file['size'] > 4 * 1024 * 1024)
-        throw new RuntimeException('File exceeds 4 MB limit.');
+    if (!in_array($mime, $allowed, true)) {
+        throw new RuntimeException("Invalid file type ($mime). Only JPEG, PNG, WebP and GIF are allowed.");
+    }
 
-    $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    $filename = bin2hex(random_bytes(12)) . '.' . $ext;
-    if (!move_uploaded_file($file['tmp_name'], $upload_dir . $filename))
-        throw new RuntimeException('Failed to save uploaded file.');
+    // Step 4 — 4 MB hard cap
+    if ($file['size'] > 4 * 1024 * 1024) {
+        throw new RuntimeException('Image is ' . round($file['size'] / 1048576, 1) . ' MB — maximum is 4 MB.');
+    }
 
-    return 'uploads/' . $filename;
+    // Step 5 — safe random filename
+    $ext_map  = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+    $filename = bin2hex(random_bytes(12)) . '.' . $ext_map[$mime];
+    $dest     = $upload_dir . $filename;
+
+    // Step 6 — move from PHP temp to the correct category folder
+    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+        throw new RuntimeException(
+            "move_uploaded_file() failed. Destination: $dest — " .
+            "Check that the folder is writable and open_basedir in php.ini is not blocking it."
+        );
+    }
+
+    // Return the web-relative path that gets stored in the DB and used in src=
+    return $upload_web . $filename;
 }
 
 function techs_to_json(string $raw): string {
@@ -69,9 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($title === '' || $description === '')
                 throw new RuntimeException('Title and description are required.');
 
-            $image_path = 'uploads/placeholder.png';
+            $image_path = 'projects/web/placeholder.png';
             if (!empty($_FILES['image']['name']))
-                $image_path = handle_image_upload($_FILES['image']);
+                $image_path = handle_image_upload($_FILES['image'], $category);
 
             $pdo->prepare('INSERT INTO projects (title,description,technologies,project_url,image_path,category)
                            VALUES (?,?,?,?,?,?)')
@@ -98,10 +179,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $image_path = $existing['image_path'] ?? 'uploads/placeholder.png';
 
             if (!empty($_FILES['image']['name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-                if ($image_path && $image_path !== 'uploads/placeholder.png'
-                    && file_exists(__DIR__ . '/' . $image_path))
-                    @unlink(__DIR__ . '/' . $image_path);
-                $image_path = handle_image_upload($_FILES['image']);
+                // Delete old file if it exists and is not the placeholder
+                if ($image_path && strpos($image_path, 'placeholder') === false
+                    && file_exists(__DIR__ . DIRECTORY_SEPARATOR . $image_path))
+                    @unlink(__DIR__ . DIRECTORY_SEPARATOR . $image_path);
+                $image_path = handle_image_upload($_FILES['image'], $category);
             }
 
             $pdo->prepare('UPDATE projects
@@ -118,9 +200,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $row->execute([$id]);
             $proj = $row->fetch();
             if ($proj && !empty($proj['image_path'])
-                && $proj['image_path'] !== 'uploads/placeholder.png'
-                && file_exists(__DIR__ . '/' . $proj['image_path']))
-                @unlink(__DIR__ . '/' . $proj['image_path']);
+                && strpos($proj['image_path'], 'placeholder') === false
+                && file_exists(__DIR__ . DIRECTORY_SEPARATOR . $proj['image_path']))
+                @unlink(__DIR__ . DIRECTORY_SEPARATOR . $proj['image_path']);
             $pdo->prepare('DELETE FROM projects WHERE id = ?')->execute([$id]);
             $msg = 'Project deleted.';
         }
@@ -309,9 +391,83 @@ $experiences = $pdo->query('SELECT * FROM experiences ORDER BY sort_order, id')-
   </div>
 </header>
 
+<!-- ── Upload folder diagnostic banner ── -->
+<?php
+// Auto-create all 4 category subfolders on page load
+$folder_checks = [
+    'web_app'       => 'projects' . DIRECTORY_SEPARATOR . 'web',
+    'photo_editing' => 'projects' . DIRECTORY_SEPARATOR . 'photo',
+    'video_editing' => 'projects' . DIRECTORY_SEPARATOR . 'video',
+    'app'           => 'projects' . DIRECTORY_SEPARATOR . 'app',
+];
+
+$folder_status = [];
+foreach ($folder_checks as $key => $rel) {
+    $abs = __DIR__ . DIRECTORY_SEPARATOR . $rel;
+    if (!is_dir($abs)) @mkdir($abs, 0755, true);
+    $exists   = is_dir($abs);
+    $writable = $exists && is_writable($abs);
+    $folder_status[$key] = [
+        'rel'      => str_replace(DIRECTORY_SEPARATOR, '/', $rel),
+        'abs'      => $abs,
+        'exists'   => $exists,
+        'writable' => $writable,
+        'ok'       => $exists && $writable,
+    ];
+}
+$all_ok = array_reduce($folder_status, fn($c, $f) => $c && $f['ok'], true);
+?>
+
+<?php if (!$all_ok): ?>
+<div class="mx-6 mt-5 rounded-lg border border-yellow-800/50 bg-yellow-950/30 px-4 py-4 text-sm text-yellow-400">
+  <div class="flex items-center gap-2 mb-3 font-medium">
+    <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    One or more upload folders have a problem:
+  </div>
+  <div class="space-y-1.5 mb-3">
+    <?php foreach ($folder_status as $f): ?>
+      <div class="flex items-center gap-2 font-mono text-xs">
+        <?php if ($f['ok']): ?>
+          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span class="text-green-500"><?= htmlspecialchars($f['rel']) ?></span>
+        <?php elseif (!$f['exists']): ?>
+          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <span class="text-red-400"><?= htmlspecialchars($f['rel']) ?> &mdash; missing, could not auto-create</span>
+        <?php else: ?>
+          <svg class="shrink-0" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span class="text-yellow-400"><?= htmlspecialchars($f['rel']) ?> &mdash; not writable</span>
+        <?php endif; ?>
+      </div>
+    <?php endforeach; ?>
+  </div>
+  <p class="text-xs text-yellow-600 leading-relaxed">
+    Create any missing folders manually in your XAMPP project root:<br>
+    <code class="inline-block mt-1 bg-black/30 px-2 py-1 rounded text-yellow-400 font-mono">
+      D:\xampp\htdocs\my-portfolio\projects\web &nbsp;|&nbsp;
+      \photo &nbsp;|&nbsp; \video &nbsp;|&nbsp; \app
+    </code>
+  </p>
+</div>
+<?php else: ?>
+<div class="mx-6 mt-5 rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-3 text-xs text-neutral-500">
+  <div class="flex items-center gap-2 mb-2">
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <span class="text-neutral-400 font-medium">All upload folders ready</span>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 font-mono">
+    <?php foreach ($folder_status as $f): ?>
+      <div class="flex items-center gap-1.5 text-neutral-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <?= htmlspecialchars(str_replace(DIRECTORY_SEPARATOR, '/', $f['abs'])) ?>
+      </div>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <!-- ── Flash message ── -->
 <?php if ($msg): ?>
-  <div class="mx-6 mt-5 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm
+  <div class="mx-6 mt-3 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm
     <?= $msg_type === 'green'
         ? 'border-green-800/50 bg-green-950/40 text-green-400'
         : 'border-red-800/50 bg-red-950/40 text-red-400' ?>">
