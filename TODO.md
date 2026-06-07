@@ -1,0 +1,10 @@
+- [ ] admin.php: add CSRF token generation + validation for every POST action
+- [ ] admin.php: add server-side category whitelist enforcement (web_app, photo_editing, video_editing)
+- [ ] admin.php: inject hidden csrf_token field into all admin POST forms (add/update/delete project/experience, logout)
+- [ ] register.php: close registration (REGISTRATION_OPEN = false)
+- [ ] Quick manual verification checklist:
+  - [ ] Login → Admin access still works
+  - [ ] Each admin action works when csrf_token is present
+  - [ ] Each admin action is rejected (403) when csrf_token missing/invalid
+  - [ ] Upload with each valid category works; invalid category rejected
+  - [ ] register.php no longer allows account creation

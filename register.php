@@ -12,7 +12,7 @@
 session_start();
 
 // ── Set to false after you create your account ──
-define('REGISTRATION_OPEN', true);
+define('REGISTRATION_OPEN', false);
 
 if (!REGISTRATION_OPEN) {
     http_response_code(403);

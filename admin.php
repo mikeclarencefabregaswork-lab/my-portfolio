@@ -9,6 +9,21 @@ if (!isset($_SESSION['admin_id'])) {
     exit;
 }
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function csrf_token(): string {
+    return $_SESSION['csrf_token'] ?? '';
+}
+
+function validate_csrf_from_request(): void {
+    if (empty($_POST['csrf_token']) || !hash_equals(csrf_token(), (string)$_POST['csrf_token'])) {
+        http_response_code(403);
+        exit('CSRF validation failed.');
+    }
+}
+
 require_once __DIR__ . '/db.php';
 
 $pdo      = get_pdo();
@@ -83,7 +98,14 @@ function check_upload_error(int $code): void {
     }
 }
 
+function normalize_category(string $category): string {
+    $allowed = ['web_app', 'photo_editing', 'video_editing'];
+    return in_array($category, $allowed, true) ? $category : 'web_app';
+}
+
 function handle_image_upload(array $file, string $category): string {
+    $category = normalize_category($category);
+
     // Step 1 — catch PHP-level errors
     check_upload_error($file['error']);
 
@@ -139,6 +161,7 @@ function techs_to_string(string $json): string {
 //  POST HANDLER
 // ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    validate_csrf_from_request();
     $action = $_POST['action'] ?? '';
 
     try {
@@ -153,6 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($title === '' || $description === '')
                 throw new RuntimeException('Title and description are required.');
+
+            $category = normalize_category($category);
 
             $image_path = 'projects/web/placeholder.png';
             if (!empty($_FILES['image']['name']))
@@ -172,6 +197,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $url         = trim($_POST['project_url'] ?? '#');
             $category    = $_POST['category'] ?? 'web_app';
             $tech_json   = techs_to_json($_POST['technologies'] ?? '');
+
+            $category = normalize_category($category);
 
             if ($id === 0 || $title === '' || $description === '')
                 throw new RuntimeException('ID, title and description are required.');
@@ -430,6 +457,7 @@ $experiences = $pdo->query('SELECT * FROM experiences ORDER BY sort_order, id')-
     <span class="text-sm text-neutral-500">Hello, <span class="text-purple-400"><?= htmlspecialchars($_SESSION['admin_user']) ?></span></span>
     <a href="index.php" class="text-xs text-neutral-500 hover:text-white transition">← View Site</a>
     <form method="POST"><input type="hidden" name="action" value="logout" />
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
       <button class="text-xs text-red-500 hover:text-red-400 transition">Logout</button>
     </form>
   </div>
@@ -486,6 +514,7 @@ if ($msg !== '') {
     </h2>
     <form method="POST" enctype="multipart/form-data">
       <input type="hidden" name="action" value="add_project" />
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <label class="lbl">Title *</label>
@@ -574,6 +603,7 @@ if ($msg !== '') {
                    class="btn-edit"><?= $is_editing ? 'Close' : 'Edit' ?></a>
                 <form method="POST" onsubmit="return confirm('Delete «<?= htmlspecialchars(addslashes($p['title'])) ?>»?')">
                   <input type="hidden" name="action" value="delete_project" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
                   <input type="hidden" name="id"     value="<?= $p['id'] ?>" />
                   <button type="submit" class="btn-del">Delete</button>
                 </form>
@@ -589,6 +619,7 @@ if ($msg !== '') {
                 <p class="text-xs text-purple-400 font-medium uppercase tracking-widest mb-4">Editing: <?= htmlspecialchars($p['title']) ?></p>
                 <form method="POST" enctype="multipart/form-data">
                   <input type="hidden" name="action" value="update_project" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
                   <input type="hidden" name="id"     value="<?= $p['id'] ?>" />
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -656,6 +687,7 @@ if ($msg !== '') {
     </h2>
     <form method="POST">
       <input type="hidden" name="action" value="add_experience" />
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <label class="lbl">Year / Period *</label>
@@ -728,6 +760,7 @@ if ($msg !== '') {
                    class="btn-edit"><?= $is_editing ? 'Close' : 'Edit' ?></a>
                 <form method="POST" onsubmit="return confirm('Delete this experience?')">
                   <input type="hidden" name="action" value="delete_experience" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
                   <input type="hidden" name="id"     value="<?= $e['id'] ?>" />
                   <button type="submit" class="btn-del">Delete</button>
                 </form>
@@ -743,6 +776,7 @@ if ($msg !== '') {
                 <p class="text-xs text-purple-400 font-medium uppercase tracking-widest mb-4">Editing: <?= htmlspecialchars($e['role']) ?> @ <?= htmlspecialchars($e['company']) ?></p>
                 <form method="POST">
                   <input type="hidden" name="action" value="update_experience" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>" />
                   <input type="hidden" name="id"     value="<?= $e['id'] ?>" />
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
