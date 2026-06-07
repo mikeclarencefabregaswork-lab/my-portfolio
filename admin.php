@@ -13,18 +13,10 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-function csrf_token(): string {
-    return $_SESSION['csrf_token'] ?? '';
-}
 
-function validate_csrf_from_request(): void {
-    if (empty($_POST['csrf_token']) || !hash_equals(csrf_token(), (string)$_POST['csrf_token'])) {
-        http_response_code(403);
-        exit('CSRF validation failed.');
-    }
-}
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/src/admin/csrf.php';
 
 $pdo      = get_pdo();
 $msg      = '';
